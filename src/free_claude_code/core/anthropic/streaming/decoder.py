@@ -1,10 +1,6 @@
 """Incremental framing for Anthropic-compatible SSE streams."""
 
-import re
-
 from ..stream_contracts import SSEEvent, parse_sse_text
-
-_EVENT_BOUNDARY = re.compile(r"(?>\r\n|\r|\n){2}")
 
 
 class AnthropicSSEDecoder:
@@ -21,11 +17,11 @@ class AnthropicSSEDecoder:
         frames = self.feed_frames(chunk)
         if not frames:
             return ()
-        return tuple(
-            event
-            for raw in frames
-            for event in parse_sse_text(raw, event_names=self._event_names)
-        )
+        events: list[SSEEvent] = []
+        event_names = self._event_names
+        for raw in frames:
+            events.extend(parse_sse_text(raw, event_names=event_names))
+        return tuple(events)
 
     def feed_frames(self, chunk: str) -> tuple[str, ...]:
         """Retain original framing, including comments and unknown SSE fields."""
@@ -35,17 +31,43 @@ class AnthropicSSEDecoder:
             self._boundary_tail = (self._boundary_tail + chunk)[-3:]
             return ()
 
-        frames: list[str] = []
         probe = self._boundary_tail + chunk
+        if "\n\n" not in probe and "\n\r" not in probe and "\r\r" not in probe:
+            if chunk:
+                self._parts.append(chunk)
+            self._boundary_tail = probe[-3:]
+            return ()
+
+        frames: list[str] = []
         prefix_length = len(self._boundary_tail)
         chunk_start = 0
-        for match in _EVENT_BOUNDARY.finditer(probe):
-            chunk_end = match.end() - prefix_length
+        search_start = 0
+        while True:
+            lf_lf = probe.find("\n\n", search_start)
+            lf_cr = probe.find("\n\r", search_start)
+            cr_cr = probe.find("\r\r", search_start)
+            boundary = probe_len = len(probe)
+            if lf_lf != -1 and lf_lf < boundary:
+                boundary = lf_lf
+            if lf_cr != -1 and lf_cr < boundary:
+                boundary = lf_cr
+            if cr_cr != -1 and cr_cr < boundary:
+                boundary = cr_cr
+            if boundary == probe_len:
+                break
+            if probe[boundary + 1] == "\n":
+                end = boundary + 2
+            elif boundary + 2 < probe_len and probe[boundary + 2] == "\n":
+                end = boundary + 3
+            else:
+                end = boundary + 2
+            chunk_end = end - prefix_length
             self._parts.append(chunk[chunk_start:chunk_end])
             raw = "".join(self._parts)
             self._parts.clear()
             frames.append(raw)
             chunk_start = chunk_end
+            search_start = end
 
         remainder = chunk[chunk_start:]
         if remainder:
@@ -59,11 +81,11 @@ class AnthropicSSEDecoder:
     def finish(self) -> tuple[SSEEvent, ...]:
         """Return a final unterminated event, if one is present."""
 
-        return tuple(
-            event
-            for raw in self.finish_frames()
-            for event in parse_sse_text(raw, event_names=self._event_names)
-        )
+        events: list[SSEEvent] = []
+        event_names = self._event_names
+        for raw in self.finish_frames():
+            events.extend(parse_sse_text(raw, event_names=event_names))
+        return tuple(events)
 
     def finish_frames(self) -> tuple[str, ...]:
         """Return the original trailing frame and clear framing state."""

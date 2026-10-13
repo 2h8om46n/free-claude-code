@@ -94,14 +94,20 @@ def parse_sse_text(
             data_lf = text.find("\n", data_start)
             if data_lf != -1 and text[data_lf + 1 :] in ("\n", "\r\n"):
                 data_end = data_lf - 1 if text[data_lf - 1] == "\r" else data_lf
-                current_event = text[event_start + 6 : event_end].strip()
+                if text[event_start + 6] == " ":
+                    current_event = text[event_start + 7 : event_end]
+                else:
+                    current_event = text[event_start + 6 : event_end].strip()
                 if (
                     event_names is not None
                     and current_event
                     and current_event not in event_names
                 ):
                     return []
-                data_text = text[data_start + 5 : data_end].strip()
+                if text[data_start + 5] == " ":
+                    data_text = text[data_start + 6 : data_end]
+                else:
+                    data_text = text[data_start + 5 : data_end].strip()
                 data: dict[str, Any]
                 try:
                     parsed = json.loads(data_text) if data_text else {}
