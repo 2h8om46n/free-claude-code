@@ -66,9 +66,9 @@ def parse_sse_lines(
             continue
         raw_parts.append(stripped)
         if stripped.startswith("event:"):
-            current_event = stripped.split(":", 1)[1].strip()
+            current_event = stripped[6:].strip()
         elif stripped.startswith("data:"):
-            data_parts.append(stripped.split(":", 1)[1].strip())
+            data_parts.append(stripped[5:].strip())
 
     _append_event(events, current_event, data_parts, raw_parts, event_names)
     return events

@@ -27,6 +27,11 @@ class AnthropicSSEDecoder:
     def feed_frames(self, chunk: str) -> tuple[str, ...]:
         """Retain original framing, including comments and unknown SSE fields."""
 
+        if chunk and "\n" not in chunk and "\r" not in chunk:
+            self._parts.append(chunk)
+            self._boundary_tail = (self._boundary_tail + chunk)[-3:]
+            return ()
+
         frames: list[str] = []
         probe = self._boundary_tail + chunk
         prefix_length = len(self._boundary_tail)
