@@ -78,6 +78,27 @@ def parse_sse_text(
     text: str, *, event_names: frozenset[str] | None = None
 ) -> list[SSEEvent]:
     # SSE uses CR/LF framing; Unicode line separators can occur inside JSON text.
+    if "\r" not in text and text.startswith("event:"):
+        event_end = text.find("\n")
+        data_start = event_end + 1
+        if event_end != -1 and text.startswith("data:", data_start):
+            data_end = text.find("\n", data_start)
+            if data_end != -1 and text[data_end:] == "\n\n":
+                current_event = text[6:event_end].strip()
+                if (
+                    event_names is not None
+                    and current_event
+                    and current_event not in event_names
+                ):
+                    return []
+                data_text = text[data_start + 5 : data_end].strip()
+                data: dict[str, Any]
+                try:
+                    parsed = json.loads(data_text) if data_text else {}
+                    data = parsed if isinstance(parsed, dict) else {"value": parsed}
+                except json.JSONDecodeError:
+                    data = {"raw": data_text}
+                return [SSEEvent(current_event, data, text[:data_end])]
     return parse_sse_lines(re.split(r"\r\n|\r|\n", text), event_names=event_names)
 
 
