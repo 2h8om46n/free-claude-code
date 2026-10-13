@@ -18,6 +18,8 @@ from .streaming.decoder import AnthropicSSEDecoder
 
 __all__ = ["aggregate_anthropic_sse_to_message"]
 
+_JSON_DECODER = json.JSONDecoder()
+
 
 def _sse_payload(raw: str) -> dict[str, Any] | None:
     data_pos = raw.find("data:")
@@ -34,12 +36,24 @@ def _sse_payload(raw: str) -> dict[str, Any] | None:
         if data_end == -1:
             data_end = len(raw)
         if raw.find("data:", data_end) == -1:
-            data_text = raw[data_start:data_end].strip()
+            json_start = data_start
+            if json_start < data_end and raw[json_start] == " ":
+                json_start += 1
             try:
-                parsed = json.loads(data_text) if data_text else {}
+                if json_start < data_end:
+                    parsed, json_end = _JSON_DECODER.raw_decode(raw, json_start)
+                    if json_end != data_end and raw[json_end:data_end].strip():
+                        raise json.JSONDecodeError("Extra data", raw, json_end)
+                else:
+                    parsed = {}
                 return parsed if isinstance(parsed, dict) else {"value": parsed}
             except json.JSONDecodeError:
-                return {"raw": data_text}
+                data_text = raw[data_start:data_end].strip()
+                try:
+                    parsed = json.loads(data_text) if data_text else {}
+                    return parsed if isinstance(parsed, dict) else {"value": parsed}
+                except json.JSONDecodeError:
+                    return {"raw": data_text}
 
     data_parts: list[str] = []
     start = 0
