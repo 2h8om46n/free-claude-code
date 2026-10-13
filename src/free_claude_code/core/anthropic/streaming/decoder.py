@@ -18,9 +18,12 @@ class AnthropicSSEDecoder:
     def feed(self, chunk: str) -> tuple[SSEEvent, ...]:
         """Consume one wire chunk and return its selected complete events."""
 
+        frames = self.feed_frames(chunk)
+        if not frames:
+            return ()
         return tuple(
             event
-            for raw in self.feed_frames(chunk)
+            for raw in frames
             for event in parse_sse_text(raw, event_names=self._event_names)
         )
 

@@ -78,13 +78,23 @@ def parse_sse_text(
     text: str, *, event_names: frozenset[str] | None = None
 ) -> list[SSEEvent]:
     # SSE uses CR/LF framing; Unicode line separators can occur inside JSON text.
-    if "\r" not in text and text.startswith("event:"):
-        event_end = text.find("\n")
-        data_start = event_end + 1
-        if event_end != -1 and text.startswith("data:", data_start):
-            data_end = text.find("\n", data_start)
-            if data_end != -1 and text[data_end:] == "\n\n":
-                current_event = text[6:event_end].strip()
+    event_start = 0
+    raw_prefix = ""
+    if text.startswith(":"):
+        comment_lf = text.find("\n")
+        if comment_lf != -1:
+            comment_end = comment_lf - 1 if text[comment_lf - 1] == "\r" else comment_lf
+            event_start = comment_lf + 1
+            raw_prefix = text[:comment_end] + "\n"
+    if text.startswith("event:", event_start):
+        event_lf = text.find("\n", event_start)
+        data_start = event_lf + 1
+        if event_lf != -1 and text.startswith("data:", data_start):
+            event_end = event_lf - 1 if text[event_lf - 1] == "\r" else event_lf
+            data_lf = text.find("\n", data_start)
+            if data_lf != -1 and text[data_lf + 1 :] in ("\n", "\r\n"):
+                data_end = data_lf - 1 if text[data_lf - 1] == "\r" else data_lf
+                current_event = text[event_start + 6 : event_end].strip()
                 if (
                     event_names is not None
                     and current_event
@@ -98,7 +108,8 @@ def parse_sse_text(
                     data = parsed if isinstance(parsed, dict) else {"value": parsed}
                 except json.JSONDecodeError:
                     data = {"raw": data_text}
-                return [SSEEvent(current_event, data, text[:data_end])]
+                raw = raw_prefix + text[event_start:event_end] + "\n" + text[data_start:data_end]
+                return [SSEEvent(current_event, data, raw)]
     return parse_sse_lines(re.split(r"\r\n|\r|\n", text), event_names=event_names)
 
 
