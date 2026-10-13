@@ -62,9 +62,12 @@ class AnthropicSSEDecoder:
             else:
                 end = boundary + 2
             chunk_end = end - prefix_length
-            self._parts.append(chunk[chunk_start:chunk_end])
-            raw = "".join(self._parts)
-            self._parts.clear()
+            if self._parts:
+                self._parts.append(chunk[chunk_start:chunk_end])
+                raw = "".join(self._parts)
+                self._parts.clear()
+            else:
+                raw = chunk[chunk_start:chunk_end]
             frames.append(raw)
             chunk_start = chunk_end
             search_start = end

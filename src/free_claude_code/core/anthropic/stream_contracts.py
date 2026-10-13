@@ -15,6 +15,8 @@ from .server_tool_types import (
     WEB_SEARCH_TOOL_RESULT,
 )
 
+_JSON_DECODER = json.JSONDecoder()
+
 # Content blocks that only use content_block_start/stop (no deltas), including
 # Anthropic server tools and eager text emitted in a single start event.
 _NO_DELTA_BLOCK_KINDS = frozenset(
@@ -104,15 +106,27 @@ def parse_sse_text(
                     and current_event not in event_names
                 ):
                     return []
-                if text[data_start + 5] == " ":
-                    data_text = text[data_start + 6 : data_end]
+                json_start = data_start + 5
+                leading_space = json_start < data_end and text[json_start] == " "
+                if leading_space:
+                    json_start += 1
+                    has_data = json_start < data_end
                 else:
-                    data_text = text[data_start + 5 : data_end].strip()
+                    has_data = bool(text[json_start:data_end].strip())
                 data: dict[str, Any]
                 try:
-                    parsed = json.loads(data_text) if data_text else {}
+                    if has_data:
+                        parsed, json_end = _JSON_DECODER.raw_decode(text, json_start)
+                        if json_end != data_end and text[json_end:data_end].strip():
+                            raise json.JSONDecodeError("Extra data", text, json_end)
+                    else:
+                        parsed = {}
                     data = parsed if isinstance(parsed, dict) else {"value": parsed}
                 except json.JSONDecodeError:
+                    if leading_space:
+                        data_text = text[json_start:data_end]
+                    else:
+                        data_text = text[data_start + 5 : data_end].strip()
                     data = {"raw": data_text}
                 raw = raw_prefix + text[event_start:event_end] + "\n" + text[data_start:data_end]
                 return [SSEEvent(current_event, data, raw)]
