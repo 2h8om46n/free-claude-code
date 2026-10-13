@@ -14,10 +14,42 @@ from typing import Any
 
 from free_claude_code.core.failures import ExecutionFailure, FailureKind
 
-from .stream_contracts import SSEEvent
 from .streaming.decoder import AnthropicSSEDecoder
 
 __all__ = ["aggregate_anthropic_sse_to_message"]
+
+
+def _sse_payload(raw: str) -> dict[str, Any] | None:
+    data_parts: list[str] = []
+    start = 0
+    raw_len = len(raw)
+    while start < raw_len:
+        next_lf = raw.find("\n", start)
+        next_cr = raw.find("\r", start)
+        if next_lf == -1:
+            end = next_cr
+        elif next_cr == -1:
+            end = next_lf
+        else:
+            end = next_cr if next_cr < next_lf else next_lf
+        if end == -1:
+            line = raw[start:]
+            start = raw_len
+        else:
+            line = raw[start:end]
+            start = end + 1
+            if raw[end] == "\r" and start < raw_len and raw[start] == "\n":
+                start += 1
+        if line.startswith("data:"):
+            data_parts.append(line[5:].strip())
+    if not data_parts:
+        return None
+    data_text = "\n".join(data_parts)
+    try:
+        parsed = json.loads(data_text) if data_text else {}
+        return parsed if isinstance(parsed, dict) else {"value": parsed}
+    except json.JSONDecodeError:
+        return {"raw": data_text}
 
 
 async def aggregate_anthropic_sse_to_message(
@@ -103,14 +135,15 @@ async def aggregate_anthropic_sse_to_message(
         elif ptype == "message_stop":
             complete = True
 
-    def handle_event(event: SSEEvent) -> None:
-        handle_payload(event.data)
-
     async for chunk in stream:
-        for event in decoder.feed(chunk):
-            handle_event(event)
-    for event in decoder.finish():
-        handle_event(event)
+        for raw in decoder.feed_frames(chunk):
+            payload = _sse_payload(raw)
+            if payload is not None:
+                handle_payload(payload)
+    for raw in decoder.finish_frames():
+        payload = _sse_payload(raw)
+        if payload is not None:
+            handle_payload(payload)
 
     content: list[dict[str, Any]] = []
     for idx in sorted(blocks):
