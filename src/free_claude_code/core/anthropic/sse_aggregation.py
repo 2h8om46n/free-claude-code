@@ -20,6 +20,27 @@ __all__ = ["aggregate_anthropic_sse_to_message"]
 
 
 def _sse_payload(raw: str) -> dict[str, Any] | None:
+    data_pos = raw.find("data:")
+    if data_pos != -1 and (data_pos == 0 or raw[data_pos - 1] in "\r\n"):
+        data_start = data_pos + 5
+        next_lf = raw.find("\n", data_start)
+        next_cr = raw.find("\r", data_start)
+        if next_lf == -1:
+            data_end = next_cr
+        elif next_cr == -1:
+            data_end = next_lf
+        else:
+            data_end = next_cr if next_cr < next_lf else next_lf
+        if data_end == -1:
+            data_end = len(raw)
+        if raw.find("data:", data_end) == -1:
+            data_text = raw[data_start:data_end].strip()
+            try:
+                parsed = json.loads(data_text) if data_text else {}
+                return parsed if isinstance(parsed, dict) else {"value": parsed}
+            except json.JSONDecodeError:
+                return {"raw": data_text}
+
     data_parts: list[str] = []
     start = 0
     raw_len = len(raw)
